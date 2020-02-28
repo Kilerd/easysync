@@ -176,9 +176,19 @@ impl ComponentList {
                 buf_inner.take();
             }
         }
-
-        // TODO
         (res_a, res_s, res_dlen)
+    }
+    pub fn invert(&self) -> ComponentList {
+        let mut ret = vec![];
+        for x in &self.inner {
+            let operation = x.invert();
+            ret.push(operation);
+
+        }
+        ComponentList {
+            inner: ret,
+            dirty: false
+        }
     }
 }
 
@@ -273,6 +283,22 @@ impl Operation {
         self.chars += other.chars;
         self.lines += other.lines;
         self.char_bank.push_str(&other.char_bank);
+    }
+
+    pub fn invert(&self) -> Operation {
+        let list = self.attributes.invert(None);
+        let code = match self.op_code {
+            OperationCode::INSERT => OperationCode::REMOVE,
+            OperationCode::REMOVE => OperationCode::INSERT,
+            OperationCode::KEEP => OperationCode::KEEP
+        };
+        Operation {
+            op_code: code,
+            chars: self.chars,
+            lines: self.lines,
+            attributes: list,
+            char_bank: self.char_bank.clone()
+        }
     }
 }
 

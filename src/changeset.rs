@@ -58,7 +58,7 @@ impl ChangeSet {
         }
     }
 
-    pub fn apply(&self, content: String) -> String {
+    pub fn apply(&self, content: &str) -> String {
         assert_eq!(self.old_length, content.len() as i32);
         let mut assm = String::new();
         let mut chars = content.chars();
@@ -253,6 +253,14 @@ impl ChangeSet {
         }
         packed_cs
     }
+    pub fn invert(&self) -> ChangeSet {
+        let invert_component_list = self.ops.invert();
+        ChangeSet {
+            old_length: self.new_length,
+            new_length: self.old_length,
+            ops: invert_component_list
+        }
+    }
 }
 
 
@@ -311,20 +319,20 @@ mod test {
         fn apply(reason: impl Into<String>, cs: impl Into<String>, content: impl Into<String>, expected: impl Into<String>) {
             let pool = pool();
             let mut set = ChangeSet::from_str(cs.into(), &pool);
-            let string = set.apply(content.into());
+            let string = set.apply(content.into().as_str());
             assert_eq!(string, expected.into(), "{}", reason.into());
         }
-        apply(
-            "basic apply",
-            "Z:0>1+1$a",
-            "",
-            "a",
-        );
-        apply(
-            "basic apply",
-            "Z:z>4|2=m=b-1+2+3$oabcde",
-            "Hello World\n\n Hello World Hello Wor",
-            "Hello World\n\n Hello World Hello Wabcder",
-        );
+        apply("basic apply", "Z:0>1+1$a", "", "a",);
+        apply("basic apply", "Z:z>4|2=m=b-1+2+3$oabcde", "Hello World\n\n Hello World Hello Wor", "Hello World\n\n Hello World Hello Wabcder",);
+    }
+    #[test]
+    fn test_invert() {
+        let pool1 = pool();
+        let set = ChangeSet::from_str("Z:a>1=1^3*0=1*0|1=2*1=4*2|1-2*1|1+3$h\nij\n".to_string(), &pool1);
+        let raw_content = "12345678h\n";
+        let apply_content = set.apply(raw_content);
+        let inverted_cs = set.invert();
+        let inverted_content = inverted_cs.apply(apply_content.as_str());
+        assert_eq!(inverted_content, raw_content);
     }
 }
