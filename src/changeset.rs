@@ -194,7 +194,7 @@ impl ChangeSet {
                             } else if (this_char.eq("\n") || other_char.eq("\n"))
                                 && this_char.ne(&other_char)
                             {
-                                // insert string that doesn't start with a newline first
+                                // insert string that doesn"t start with a newline first
                                 // to not break up lines
                                 left = other_char.ne("\n");
                             } else {
@@ -279,14 +279,73 @@ impl ChangeSet {
         ChangeSet::new(other.new_length, other.new_length + dlen, list)
     }
 
-    pub fn compose(self, next: ChangeSet, pool: AttributePool) -> ChangeSet {
-        unimplemented!()
+    pub fn compose(&self, next: &ChangeSet, pool: &AttributePool) -> ChangeSet {
+        let mut this = self.ops.clone();
+        let mut next_component_list = next.ops.clone();
+        this.reorder();
+        next_component_list.reorder();
+
+        let list = ChangeSet::zip(this, next_component_list, |t, o| {
+            let no_split = t.op_code == OperationCode::REMOVE || o.op_code == OperationCode::INSERT;
+            // KEEPS can be replaced by REMOVEs
+            let has_keep = t.op_code == OperationCode::KEEP || o.op_code == OperationCode::KEEP;
+            // REMOVEs can affect KEEPs and INSERTs but not other REMOVEs
+            let has_remove_actual = (t.op_code != o.op_code) && (t.op_code == OperationCode::REMOVE || o.op_code == OperationCode::REMOVE);
+            // in both cases we can split ops into equal slices
+            (has_keep || has_remove_actual) && !no_split
+        }, |t, o, op_out| {
+            match (&t, &o) {
+                (Some(this_inner), None) => {
+                    *op_out = Some(Operation::copy(this_inner));
+                    t.take();
+                }
+                (Some(this_inner), Some(_)) if this_inner.op_code == OperationCode::REMOVE => {
+                    *op_out = Some(Operation::copy(this_inner));
+                    t.take();
+                }
+                (None, Some(other_inner)) => {
+                    *op_out = Some(Operation::copy(other_inner));
+                    o.take();
+                }
+                (Some(this_inner), Some(other_inner)) if other_inner.op_code == OperationCode::INSERT && this_inner.op_code != OperationCode::REMOVE => {
+                    *op_out = Some(Operation::copy(other_inner));
+                    o.take();
+                }
+                (Some(this_inner), Some(other_inner)) if this_inner.op_code == OperationCode::KEEP && other_inner.op_code == OperationCode::REMOVE => {
+                    let mut operation = Operation::copy(other_inner);
+                    let list1 = this_inner.attributes.invert(None);
+                    let list2 = operation.attributes.compose(&list1, true);
+                    operation.attributes = list2;
+                    *op_out = Some(operation);
+                    t.take();
+                    o.take();
+                }
+                (Some(this_inner), Some(other_inner)) if this_inner.op_code != OperationCode::REMOVE && other_inner.op_code == OperationCode::KEEP => {
+                    let mut operation = Operation::copy(this_inner);
+                    operation.composeAttributes(other_inner);
+                    *op_out = Some(operation);
+                    t.take();
+                    o.take();
+                }
+                (None, None) => {}
+                _ => {
+                    t.take();
+                    o.take();
+                }
+            }
+        });
+        ChangeSet {
+            old_length: self.old_length,
+            new_length: next.new_length,
+            ops: list,
+        }
     }
+
     pub fn pack(&mut self, pool: &AttributePool) -> String {
         //        let x = self.ops.pack();
         let (ops_a, ops_s, ops_delta_len) = self.ops.pack(pool);
         let old_len = to36String(self.old_length);
-        let change_sign = if ops_delta_len >= 0 { '>' } else { '<' };
+        let change_sign = if ops_delta_len >= 0 { ">" } else { "<" };
         let delta_len = to36String(ops_delta_len.abs());
 
         let mut packed_cs = format!(
@@ -301,6 +360,7 @@ impl ChangeSet {
         }
         packed_cs
     }
+
     pub fn invert(&self) -> ChangeSet {
         let invert_component_list = self.ops.invert();
         ChangeSet {
@@ -326,7 +386,7 @@ mod test {
 
     #[test]
     fn test_transform() {
-        fn transform(case: impl Into<String>, cs1: impl Into<String>, cs2: impl Into<String>, reverse: bool, expected: impl Into<String>,) {
+        fn transform(case: impl Into<String>, cs1: impl Into<String>, cs2: impl Into<String>, reverse: bool, expected: impl Into<String>) {
             let pool = pool();
             let cs1 = ChangeSet::from_str(cs1.into(), &pool);
             let cs2 = ChangeSet::from_str(cs2.into(), &pool);
@@ -334,20 +394,20 @@ mod test {
             assert_eq!(transform_cs.pack(&pool), expected.into(), "{}", case.into());
         }
 
-        transform("insert tie break left", "Z:0>2+2$ab", "Z:0>2+2$cd", false, "Z:2>2=2+2$ab",);
-        transform("insert tie break right", "Z:0>2+2$cd", "Z:0>2+2$ab", true, "Z:2>2+2$cd",);
-        transform("insert tie break by newline", "Z:0>2+2$ab", "Z:0>1|1+1$\n", false, "Z:1>2+2$ab",);
-        transform("insert tie break by newline (no affect of side=right)", "Z:0>2+2$ab", "Z:0>1|1+1$\n", true, "Z:1>2+2$ab",);
-        transform("insert tie break left when both newlines", "Z:0>2|1+1+1$\na", "Z:0>2|1+1+1$\nb", false, "Z:2>2|1=1=1|1+1+1$\na",);
-        transform("insert tie break right when both newlines", "Z:0>2|1+1+1$\nb", "Z:0>2|1+1+1$\na", true, "Z:2>2|1+1+1$\nb",);
-        transform("tie break when one of the ops is insert", "Z:2>1+1$a", "Z:2<1-1$b", false, "Z:1>1+1$a",);
-        transform("tie break when one of the ops is insert (no affect of side=right)", "Z:2>1+1$a", "Z:2<1-1$b", true, "Z:1>1+1$a",);
-        transform("remove when part was removed", "Z:8<4-4$abcd", "Z:8<2-2$ab", false, "Z:6<2-2$cd",);
-        transform("remove part when all was removed", "Z:8<2-2$ab", "Z:8<4-4$abcd", false, "Z:4>0",);
-        transform("remove from other keep", "Z:8<2-2$ab", "Z:8>0*0=4", false, "Z:8<2*0-2$ab",);
-        transform("keep affected by remove", "Z:8>2=8+2$ab", "Z:8<4-4$abcd", false, "Z:4>2=4+2$ab",);
-        transform("keep collapsed by remove", "Z:8>2=4+2$ab", "Z:8<6-6$abcdef", false, "Z:2>2+2$ab",);
-        transform("keep moved by bigger insert", "Z:4>1|1=4+1$a", "Z:4>5+5$bcdef", false, "Z:9>1|1=9+1$a",);
+        transform("insert tie break left", "Z:0>2+2$ab", "Z:0>2+2$cd", false, "Z:2>2=2+2$ab");
+        transform("insert tie break right", "Z:0>2+2$cd", "Z:0>2+2$ab", true, "Z:2>2+2$cd");
+        transform("insert tie break by newline", "Z:0>2+2$ab", "Z:0>1|1+1$\n", false, "Z:1>2+2$ab");
+        transform("insert tie break by newline (no affect of side=right)", "Z:0>2+2$ab", "Z:0>1|1+1$\n", true, "Z:1>2+2$ab");
+        transform("insert tie break left when both newlines", "Z:0>2|1+1+1$\na", "Z:0>2|1+1+1$\nb", false, "Z:2>2|1=1=1|1+1+1$\na");
+        transform("insert tie break right when both newlines", "Z:0>2|1+1+1$\nb", "Z:0>2|1+1+1$\na", true, "Z:2>2|1+1+1$\nb");
+        transform("tie break when one of the ops is insert", "Z:2>1+1$a", "Z:2<1-1$b", false, "Z:1>1+1$a");
+        transform("tie break when one of the ops is insert (no affect of side=right)", "Z:2>1+1$a", "Z:2<1-1$b", true, "Z:1>1+1$a");
+        transform("remove when part was removed", "Z:8<4-4$abcd", "Z:8<2-2$ab", false, "Z:6<2-2$cd");
+        transform("remove part when all was removed", "Z:8<2-2$ab", "Z:8<4-4$abcd", false, "Z:4>0");
+        transform("remove from other keep", "Z:8<2-2$ab", "Z:8>0*0=4", false, "Z:8<2*0-2$ab");
+        transform("keep affected by remove", "Z:8>2=8+2$ab", "Z:8<4-4$abcd", false, "Z:4>2=4+2$ab");
+        transform("keep collapsed by remove", "Z:8>2=4+2$ab", "Z:8<6-6$abcdef", false, "Z:2>2+2$ab");
+        transform("keep moved by bigger insert", "Z:4>1|1=4+1$a", "Z:4>5+5$bcdef", false, "Z:9>1|1=9+1$a");
     }
 
     #[test]
@@ -374,7 +434,7 @@ mod test {
             assert_eq!(string, expected.into(), "{}", reason.into());
         }
         apply("basic apply", "Z:0>1+1$a", "", "a");
-        apply("basic apply", "Z:z>4|2=m=b-1+2+3$oabcde", "Hello World\n\n Hello World Hello Wor", "Hello World\n\n Hello World Hello Wabcder",);
+        apply("basic apply", "Z:z>4|2=m=b-1+2+3$oabcde", "Hello World\n\n Hello World Hello Wor", "Hello World\n\n Hello World Hello Wabcder");
     }
 
     #[test]
@@ -386,5 +446,32 @@ mod test {
         let inverted_cs = set.invert();
         let inverted_content = inverted_cs.apply(apply_content.as_str());
         assert_eq!(inverted_content, raw_content);
+    }
+
+    #[test]
+    fn test_compose() {
+        fn compose(case: impl Into<String>, cs1: impl Into<String>, cs2: impl Into<String>, expected: impl Into<String>) {
+            let pool = pool();
+            let cs1 = ChangeSet::from_str(cs1.into(), &pool);
+            let cs2 = ChangeSet::from_str(cs2.into(), &pool);
+            let mut composed_cs = cs1.compose(&cs2, &pool);
+            let string = composed_cs.pack(&pool);
+            assert_eq!(string, expected.into(), "{}", case.into());
+        }
+        compose("simple", "Z:0>3+3$abc", "Z:3>3=3+3$def", "Z:0>6+6$abcdef");
+        compose("with newline", "Z:0>2+2$ab", "Z:2>1|1+1$\n", "Z:0>3|1+1+2$\nab");
+        compose("delete inserted", "Z:0>3+3$abc", "Z:3<1=1-1$b", "Z:0>2+2$ac");
+        compose("delete from format", "Z:3>0*0=3", "Z:3<1=1*0-1$b", "Z:3<1*0=1-1*0=1$b");
+        compose("delete from unformat", "Z:3>0^0=3", "Z:3<1=1-1$b", "Z:3<1^0=1*0-1^0=1$b");
+        compose("delete inserted and insert new", "Z:0>3+3$abc", "Z:3<1-2+1$abd", "Z:0>2+2$dc");
+        // test zip slicer
+        compose("delete big + delete small with lines", "Z:8<4-4$abcd", "Z:4<2|2-2$\n\n", "Z:8<6|2-6$abcd\n\n");
+        compose("reformat string", "Z:0>4*0+2*1+2$abcd", "Z:4>0*1=1*2=2*0=1", "Z:0>4*0*1+1*0*2+1*1*2+1*0*1+1$abcd");
+//        compose("throw on removal not match", "Z:0>3+3$abc", "Z:3<1=1-1$c", null, "not match");
+//        compose("throw on versions not match", "Z:0>3+3$abc", "Z:4>1+1$c", null, "not composable");
+
+        compose("format and then remove chars", "Z:4>0*0=2", "Z:4<2*0*1-2$ab", "Z:4<2*1-2$ab");
+        compose("remove format and then remove chars", "Z:4>0^0=2", "Z:4<2*1-2$ab", "Z:4<2*0*1-2$ab");
+        compose("complete remove & insert, tests split components", "Z:3<3|1-3$12\n", "Z:0>2+2$XY", "Z:3<1|1-3+2$12\nXY");
     }
 }

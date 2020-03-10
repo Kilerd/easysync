@@ -1,14 +1,13 @@
 #[macro_use]
 extern crate strum_macros;
 
+mod attribute;
 mod attribute_pool;
 pub mod changeset;
 mod component;
+mod document;
 mod position;
 mod util;
-mod attribute;
-mod document;
-
 
 #[cfg(test)]
 mod tests {

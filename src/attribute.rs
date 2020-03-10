@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 
 #[derive(Debug, Clone)]
 pub struct AttributeList {
-    inner: Vec<OpAttribute>
+    inner: Vec<OpAttribute>,
 }
 
 impl AttributeList {
@@ -44,7 +44,8 @@ impl AttributeList {
         ret
     }
     pub fn add(&mut self, key: String, value: String) {
-        self.inner.push(OpAttribute::new(OpAttributeCode::FORMAT, key, value));
+        self.inner
+            .push(OpAttribute::new(OpAttributeCode::FORMAT, key, value));
     }
 
     pub fn equals(&self, other: &AttributeList) -> bool {
@@ -91,7 +92,10 @@ impl AttributeList {
                     c.inner.remove(j);
                     c.inner.insert(j, new_op.clone());
                     found = true;
-                } else if op.opcode != new_op.opcode && op.key == new_op.key && op.value == new_op.value {
+                } else if op.opcode != new_op.opcode
+                    && op.key == new_op.key
+                    && op.value == new_op.value
+                {
                     panic!(" cannot merge mutual ops, use compose or format instead");
                 }
 
@@ -116,8 +120,15 @@ impl AttributeList {
             let mut j = 0;
             while !found && j < this_len {
                 let this_op = &list.inner[i];
-                assert!(!this_op.eq(other_op), "trying to compose identical opattributes {}", other_op.key);
-                if this_op.opcode != other_op.opcode && this_op.key == other_op.key && this_op.value == other_op.value {
+                assert!(
+                    !this_op.eq(other_op),
+                    "trying to compose identical opattributes {}",
+                    other_op.key
+                );
+                if this_op.opcode != other_op.opcode
+                    && this_op.key == other_op.key
+                    && this_op.value == other_op.value
+                {
                     list.inner.remove(j);
                     this_len -= 1;
                     found = true;
@@ -141,13 +152,25 @@ impl AttributeList {
                 let otherOp = &other.inner[j];
                 if thisOp.eq(otherOp) {
                     skip = true;
-                } else if thisOp.key == otherOp.key && thisOp.opcode == otherOp.opcode && thisOp.opcode == OpAttributeCode::FORMAT {
+                } else if thisOp.key == otherOp.key
+                    && thisOp.opcode == otherOp.opcode
+                    && thisOp.opcode == OpAttributeCode::FORMAT
+                {
                     if thisOp.value.ne(&otherOp.value) {
-                        res.push(OpAttribute::new(OpAttributeCode::REMOVE, otherOp.key.clone(), otherOp.value.clone()));
+                        res.push(OpAttribute::new(
+                            OpAttributeCode::REMOVE,
+                            otherOp.key.clone(),
+                            otherOp.value.clone(),
+                        ));
                     }
                     skip = true;
-                } else if (thisOp.key == otherOp.key && thisOp.value == otherOp.value && thisOp.opcode != otherOp.opcode) ||
-                    (thisOp.key == otherOp.key && thisOp.value != otherOp.value && thisOp.opcode == OpAttributeCode::REMOVE) {
+                } else if (thisOp.key == otherOp.key
+                    && thisOp.value == otherOp.value
+                    && thisOp.opcode != otherOp.opcode)
+                    || (thisOp.key == otherOp.key
+                        && thisOp.value != otherOp.value
+                        && thisOp.opcode == OpAttributeCode::REMOVE)
+                {
                     panic!("invalid operation for transform");
                 }
                 j += 1;
@@ -172,8 +195,15 @@ impl AttributeList {
                         res.push(format_op.clone());
                     }
                     skip = true;
-                } else if format_op.key == this_op.key && format_op.value != this_op.value && format_op.opcode == OpAttributeCode::FORMAT {
-                    res.push(OpAttribute::new(OpAttributeCode::REMOVE, this_op.key.clone(), this_op.value.clone()));
+                } else if format_op.key == this_op.key
+                    && format_op.value != this_op.value
+                    && format_op.opcode == OpAttributeCode::FORMAT
+                {
+                    res.push(OpAttribute::new(
+                        OpAttributeCode::REMOVE,
+                        this_op.key.clone(),
+                        this_op.value.clone(),
+                    ));
                     res.push(format_op.clone());
                     skip = true;
                 }
@@ -215,16 +245,15 @@ impl AttributeList {
         for x in &self.inner {
             let i = pool.getAttributeId(&x.key, &x.value);
             mapped.push((x, i));
-        };
+        }
 
-        mapped.sort_by(|a,b | {
-
+        mapped.sort_by(|a, b| {
             if a.0.opcode == b.0.opcode {
                 a.1.cmp(&b.1)
-            }else {
+            } else {
                 if a.0.opcode == OpAttributeCode::FORMAT {
                     Ordering::Greater
-                }else{
+                } else {
                     Ordering::Less
                 }
             }
@@ -254,16 +283,22 @@ mod test {
         let list = AttributeList::unpack("^0*1".to_string(), &pool1);
 
         assert_eq!(list.inner.len(), 2);
-        assert_eq!(list.inner.get(0).unwrap(), &OpAttribute {
-            opcode: OpAttributeCode::REMOVE,
-            key: "moo".to_string(),
-            value: "zoo".to_string(),
-        });
-        assert_eq!(list.inner.get(1).unwrap(), &OpAttribute {
-            opcode: OpAttributeCode::FORMAT,
-            key: "foo".to_string(),
-            value: "bar".to_string(),
-        });
+        assert_eq!(
+            list.inner.get(0).unwrap(),
+            &OpAttribute {
+                opcode: OpAttributeCode::REMOVE,
+                key: "moo".to_string(),
+                value: "zoo".to_string(),
+            }
+        );
+        assert_eq!(
+            list.inner.get(1).unwrap(),
+            &OpAttribute {
+                opcode: OpAttributeCode::FORMAT,
+                key: "foo".to_string(),
+                value: "bar".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -271,7 +306,11 @@ mod test {
 
     #[test]
     fn test_pack() {
-        fn pack_test_base(raw: impl Into<String>, expected: impl Into<String>, reason: impl Into<String>) {
+        fn pack_test_base(
+            raw: impl Into<String>,
+            expected: impl Into<String>,
+            reason: impl Into<String>,
+        ) {
             let pool1 = pool();
             let list = AttributeList::unpack(raw.into(), &pool1);
             let pack_ret = list.pack(&pool1);
@@ -281,4 +320,3 @@ mod test {
         pack_test_base("*0^2", "^2*0", "reorder removes before formats");
     }
 }
-

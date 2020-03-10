@@ -6,10 +6,7 @@ pub(crate) struct Position {
 
 impl Default for Position {
     fn default() -> Self {
-        Self {
-            ch: 0,
-            line: 0,
-        }
+        Self { ch: 0, line: 0 }
     }
 }
 
